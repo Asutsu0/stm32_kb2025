@@ -164,6 +164,14 @@ void update_timer(int timer, int hours, int minutes){
     update_digit(x, y + font_W * 3 + 4, minutes % 10);
 }
 
+void UART1_Write(uint8_t data)
+{
+//Ждем, пока не освободится буфер передатчика
+while ((USART1->SR & USART_SR_TXE) == 0);
+//заполняем буфер передатчика
+USART1->DR = data;
+}
+
 /* Interrupt handler */
 void TIM2_IRQHandler(void) {
     if (TIM2->SR & TIM_SR_UIF) {
@@ -190,7 +198,7 @@ int main(void) {
     // i = i | mask; // i |= mask;
 
     /* IO PORTS Configuration */
-    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPAEN | RCC_APB2ENR_SPI1EN; // 0b10000=0x10
+    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPAEN | RCC_APB2ENR_SPI1EN | RCC_APB2ENR_USART1EN; // 0b10000=0x10
     GPIOC->CRH &= ~(GPIO_CRH_CNF13 | GPIO_CRH_MODE13); // GPIOC->CRH[23:20]=0000
     GPIOC->CRH |= GPIO_CRH_MODE13_0; // GPIOC->CRH[23:20]=0001
 
@@ -207,6 +215,14 @@ int main(void) {
     GPIOB->CRH &= ~(GPIO_CRH_CNF15 | GPIO_CRH_MODE15); 
     GPIOB->CRH |= GPIO_CRH_CNF15_1; 
 
+    // A9 A10
+    GPIOA->CRH &= ~(GPIO_CRH_CNF9 | GPIO_CRH_MODE9); 
+    GPIOA->CRH |= GPIO_CRH_MODE9_0;
+    GPIOA->CRH |= GPIO_CRH_CNF9_1; 
+
+    GPIOA->CRH &= ~(GPIO_CRH_CNF10 | GPIO_CRH_MODE10); 
+    GPIOA->CRH |= GPIO_CRH_CNF10_1; 
+    GPIOA->ODR |= GPIO_ODR_ODR10;
 
     // SPI IO Configuration
     GPIOA->CRL &= ~(GPIO_CRL_CNF4 | GPIO_CRL_MODE4); // GPIOA->CRL[19:16]=0000
@@ -236,6 +252,11 @@ int main(void) {
     SPI1->CR1 &= ~SPI_CR1_CPOL;     //CPOL=0
     SPI1->CR1 &= ~SPI_CR1_CPHA;     //CPHA=0
     SPI1->CR1 |= SPI_CR1_SPE;       //SPE=1
+
+    // Enable USART
+    USART1->CR1 |= USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+    USART1->BRR = 7500;
+
 
     // Display initialization
     GPIOA->ODR &= ~GPIO_ODR_ODR4; // CS=0
@@ -318,9 +339,10 @@ int main(void) {
 
 
     //update_timer(3,12,16);
-    
+
 
     while(1){
+        UART1_Write('S');
         load_buf();
         if(GPIOB->IDR & GPIO_IDR_IDR12){
             timersEnabled[0] = false;
