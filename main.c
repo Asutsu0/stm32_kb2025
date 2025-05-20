@@ -7,7 +7,7 @@
 #define font_W 11
 
 int seconds[4] = {0,0,0,0};
-bool timersEnabled[4] = {true, true, true, true};
+bool timersEnabled[4] = {false, false, false, false};
 
 uint8_t font[2][font_W * 10] = {// 'font2', 110x16px
 0xfe, 0x06, 0x02, 0x02, 0xc2, 0xc2, 0x02, 0x02, 0x06, 0xfe, 0x00, 0xc0, 0x40, 0x20, 0xf8, 0xfe, 
@@ -106,6 +106,10 @@ void delay_us(uint32_t us){
     );
 }
 
+void delay_ms(uint32_t ms){
+    delay_us(1000 * ms);  
+}
+
 void SPI1_Write(uint8_t data){
     while(!(SPI1->SR & SPI_SR_TXE));
     SPI1->DR = data;
@@ -146,10 +150,21 @@ void load_buf(){
     
 void update_digit(int x, int y, int digit){
     int p = x / 8;
+    cmd(0b10110000 | p);
+    cmd(0b00010000 | ((y & 0b11110000) >> 4));     // column = 0
+    cmd(0b00000000 | (y & 0b1111));
     for(int i = 0; i < font_W; i++)
     {
         LCD_buf[p][y + i] = font[0][font_W * digit + i]; //page 1
+        dat(LCD_buf[p][y + i]);
+    }
+    cmd(0b10110000 | (p + 1));
+    cmd(0b00010000 | ((y & 0b11110000) >> 4));     // column = 0
+    cmd(0b00000000 | (y & 0b1111));
+    for(int i = 0; i < font_W; i++)
+    {
         LCD_buf[p + 1][y + i] = font[1][font_W * digit + i]; //page 2
+        dat(LCD_buf[p + 1][y + i]);
     }
 }
 
@@ -162,14 +177,6 @@ void update_timer(int timer, int hours, int minutes){
     update_digit(x, y + font_W, hours % 10);
     update_digit(x, y + font_W * 2 + 4, minutes / 10);
     update_digit(x, y + font_W * 3 + 4, minutes % 10);
-}
-
-void UART1_Write(uint8_t data)
-{
-//Ждем, пока не освободится буфер передатчика
-while ((USART1->SR & USART_SR_TXE) == 0);
-//заполняем буфер передатчика
-USART1->DR = data;
 }
 
 /* Interrupt handler */
@@ -198,7 +205,7 @@ int main(void) {
     // i = i | mask; // i |= mask;
 
     /* IO PORTS Configuration */
-    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPAEN | RCC_APB2ENR_SPI1EN | RCC_APB2ENR_USART1EN; // 0b10000=0x10
+    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPAEN | RCC_APB2ENR_SPI1EN; // 0b10000=0x10
     GPIOC->CRH &= ~(GPIO_CRH_CNF13 | GPIO_CRH_MODE13); // GPIOC->CRH[23:20]=0000
     GPIOC->CRH |= GPIO_CRH_MODE13_0; // GPIOC->CRH[23:20]=0001
 
@@ -214,6 +221,8 @@ int main(void) {
 
     GPIOB->CRH &= ~(GPIO_CRH_CNF15 | GPIO_CRH_MODE15); 
     GPIOB->CRH |= GPIO_CRH_CNF15_1; 
+
+    GPIOB->ODR |= (GPIO_ODR_ODR12 | GPIO_ODR_ODR13 | GPIO_ODR_ODR14 | GPIO_ODR_ODR15);
 
     // A9 A10
     GPIOA->CRH &= ~(GPIO_CRH_CNF9 | GPIO_CRH_MODE9); 
@@ -252,11 +261,6 @@ int main(void) {
     SPI1->CR1 &= ~SPI_CR1_CPOL;     //CPOL=0
     SPI1->CR1 &= ~SPI_CR1_CPHA;     //CPHA=0
     SPI1->CR1 |= SPI_CR1_SPE;       //SPE=1
-
-    // Enable USART
-    USART1->CR1 |= USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
-    USART1->BRR = 7500;
-
 
     // Display initialization
     GPIOA->ODR &= ~GPIO_ODR_ODR4; // CS=0
@@ -339,14 +343,98 @@ int main(void) {
 
 
     //update_timer(3,12,16);
-
+    uint32_t count = 0;
 
     while(1){
-        UART1_Write('S');
-        load_buf();
-        if(GPIOB->IDR & GPIO_IDR_IDR12){
-            timersEnabled[0] = false;
+
+        if ((GPIOB->IDR & GPIO_IDR_IDR12) == 0){
+            count = 0;
+            delay_us(50);
+            while((GPIOB->IDR & GPIO_IDR_IDR12) == 0){
+                count += 1;
+            }
+            delay_us(50);
+            if (count > 2500000){
+                update_timer(1, 0, 0);
+                seconds[0] = 0;
+                timersEnabled[0] = false;
+            }
+            else{
+                if (timersEnabled[0] == false){
+                    timersEnabled[0] = true;
+                }
+                else{
+                    timersEnabled[0] = false;
+                }
+            }
         }
+
+        if ((GPIOB->IDR & GPIO_IDR_IDR13) == 0){
+            count = 0;
+            delay_us(50);
+            while((GPIOB->IDR & GPIO_IDR_IDR13) == 0){
+                count += 1;
+            }
+            delay_us(50);
+            if (count > 2500000){
+                update_timer(2, 0, 0);
+                seconds[1] = 0;
+                timersEnabled[1] = false;
+            }
+            else{
+                if (timersEnabled[1] == false){
+                    timersEnabled[1] = true;
+                }
+                else{
+                    timersEnabled[1] = false;
+                }
+            }
+            }
+
+        if ((GPIOB->IDR & GPIO_IDR_IDR14) == 0){
+            count = 0;
+            delay_us(50);
+            while((GPIOB->IDR & GPIO_IDR_IDR14) == 0){
+                count += 1;
+            }
+            delay_us(50);
+            if (count > 2500000){
+                update_timer(3, 0, 0);
+                seconds[2] = 0;
+                timersEnabled[2] = false;
+            }
+            else{
+                if (timersEnabled[2] == false){
+                    timersEnabled[2] = true;
+                }
+                else{
+                    timersEnabled[2] = false;
+                }
+            }
+        }
+
+        if ((GPIOB->IDR & GPIO_IDR_IDR15) == 0){
+            count = 0;
+            delay_us(50);
+            while((GPIOB->IDR & GPIO_IDR_IDR15) == 0){
+                count += 1;
+            }
+            delay_us(50);
+            if (count > 2500000){
+                update_timer(4, 0, 0);
+                seconds[3] = 0;
+                timersEnabled[3] = false;
+            }
+            else{
+                if (timersEnabled[3] == false){
+                    timersEnabled[3] = true;
+                }
+                else{
+                    timersEnabled[3] = false;
+                }
+            }
+        }
+
     };
 return 0;
 }
