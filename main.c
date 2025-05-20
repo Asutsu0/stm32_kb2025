@@ -200,6 +200,7 @@ void TIM2_IRQHandler(void) {
 }
 
 int main(void) {
+    load_buf();
     // int i = 0;
     // int mask = 8; // 8 = 0b10000 = 0x8 = (1 << 4)
     // i = i | mask; // i |= mask;
